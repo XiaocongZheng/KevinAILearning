@@ -1,0 +1,1 @@
+Kevin's AI learning project, using a vector database and an LLM to design a RAG-based agent that can answer users' questions about drones and guide users to pass the Ontario Advanced drone pilot exam.
