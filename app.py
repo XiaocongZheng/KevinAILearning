@@ -3,10 +3,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.vectorstores import Chroma
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pdf_indexing import (
@@ -18,6 +15,8 @@ from pdf_indexing import (
     synchronize_pdf_index,
     wait_until_retry_at,
 )
+from langchain_community.embeddings import HuggingFaceEmbeddings  # 引入本地向量模型
+from study_agents import StudyAssistant, StudyProgress
 
 # ---------------------------------------------------------------------------
 # 1. 加载项目本地的 .env 文件（实现 API Key 隔离，不污染全局环境）
@@ -41,9 +40,9 @@ INDEX_MANIFEST = BASE_DIR / "pdf_index_manifest.sqlite3"
 print("正在初始化无人机大容量资料 RAG 学习系统...")
 
 # 初始化 Gemini 向量模型与大模型
-embeddings = RateLimitedGoogleGenerativeAIEmbeddings(
-    model="models/gemini-embedding-001"
-)
+#embeddings = RateLimitedGoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+# 【核心改变】使用本地 CPU 运行的开源向量模型（无需 API Key，无任何额度限制，几分钟跑完 4000 页）
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # Gemini 对话模型
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
@@ -99,42 +98,23 @@ if not any(
     sys.exit(0)
 
 # ---------------------------------------------------------------------------
-# 4. 构建 RAG 检索链与导师 Prompt
+# 4. 初始化多 Agent 学习系统，共享 RAG 检索器与资料库
 # ---------------------------------------------------------------------------
-# 每次检索最相关的 5 个片段
 retriever = vectorstore.as_retriever(
     search_type="similarity", search_kwargs={"k": 5}
 )
-
-study_system_prompt = (
-    "你是一位资深的无人机飞行教员和专业技术翻译。\n"
-    "用户正在通过庞大的无人机技术资料库学习。请根据下面检索到的参考资料（Context），"
-    "为用户提供结构化的深度学习指导。\n\n"
-    "你的回答必须严格包含以下几个部分：\n"
-    "1. 📌 **核心知识点总结**：提炼出该主题最关键的技术、操作规范或安全警告。\n"
-    "2. 🇨🇳 **重点术语与难点翻译**：如果资料包含英文，请给出专业、地好的中文翻译和原词对照。\n"
-    "3. 🗺️ **原始文件阅读导航**：明确指出这些知识点分布在哪个文件的具体哪一页。\n"
-    "4. 💡 **教员提示**：补充一条实操建议或易错避坑指南。\n\n"
-    "如果参考资料中没有包含相关内容，请如实回答：“在现有的无人机学习资料中未找到该内容。”\n\n"
-    "参考资料片段：\n{context}"
-)
-
-study_prompt = ChatPromptTemplate.from_messages([
-    ("system", study_system_prompt),
-    ("human", "{input}"),
-])
-
-question_answer_chain = create_stuff_documents_chain(llm, study_prompt)
-rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+study_assistant = StudyAssistant(llm, retriever)
+study_progress = StudyProgress()
 
 # ---------------------------------------------------------------------------
 # 5. 交互控制台
 # ---------------------------------------------------------------------------
 print("\n" + "=" * 60)
-print("  🚁 60MB 无人机资料库 AI 学习导师已就绪！")
-print("  - 输入具体问题（如：‘电池存放与充电规范’、‘失联返航设置’）")
-print("  - 输入 'outline' 可让 AI 结合资料梳理整体学习大纲")
-print("  - 输入 'exit' 退出")
+print("  🚁 无人机多智能体协同备考系统已就绪！")
+print("  - 导航规划教员：输入“我完全不懂，第一天该学什么”")
+print("  - 知识拆解与翻译教员：输入术语或问题，如“什么是 VLOS？”")
+print("  - 实战场景与考官：输入“出一道关于大风天气飞行的模拟题”")
+print("  - 输入 'outline' 查看学习大纲，输入 'exit' 退出")
 print("=" * 60 + "\n")
 
 while True:
@@ -147,26 +127,15 @@ while True:
             break
 
         if user_input.lower() == "outline":
-            query_text = "请根据资料库的内容，为我生成一份系统化的无人机学习大纲，划分出基础理论、飞行前准备、应急处置和法规政策等模块。"
-        else:
-            query_text = user_input
+            user_input = "请根据资料库为零基础学员制定学习大纲和今天的学习任务"
 
-        print("\n[AI 导师正在 60MB 资料库中精准检索并提炼中...]")
-        response = rag_chain.invoke({"input": query_text})
-
-        print("\n" + response["answer"])
-
-        # 溯源信息打印
-        print("\n" + "─" * 40)
-        print("📖 原始文件精确溯源：")
-        sources = set()
-        for doc in response["context"]:
-            file_name = os.path.basename(doc.metadata.get("source", "未知文件"))
-            page_num = doc.metadata.get("page", 0) + 1
-            sources.add(f"  • 手册: 《{file_name}》 ➔ 建议翻阅第 {page_num} 页")
-
-        for source in sources:
-            print(source)
+        response = study_assistant.respond(user_input, study_progress)
+        print(f"\n[{response.agent_name}]")
+        print(response.text)
+        if response.sources:
+            print("\n📖 资料出处：")
+            for source in response.sources:
+                print(f"  • {source}")
 
         print("\n" + "=" * 60 + "\n")
 
