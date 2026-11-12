@@ -1,0 +1,6 @@
+langchain==0.3.18
+langchain-google-genai==2.0.10
+langchain-community==0.3.17
+chromadb==0.6.3
+pypdf==5.1.0
+python-dotenv==1.0.1
