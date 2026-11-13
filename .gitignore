@@ -19,6 +19,7 @@ lib64/
 parts/
 sdist/
 var/
+drone_pdfs/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -158,6 +159,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local vector database and indexing state
+/chroma_drone_db/
+/chroma_drone_db.legacy-*/
+/pdf_index_manifest.sqlite3
 
 # Spyder project settings
 .spyderproject
