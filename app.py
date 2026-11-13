@@ -45,7 +45,7 @@ print("正在初始化无人机大容量资料 RAG 学习系统...")
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # Gemini 对话模型
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+llm = ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2)
 
 # ---------------------------------------------------------------------------
 # 3. 增量同步 PDF 与持久化向量数据库
