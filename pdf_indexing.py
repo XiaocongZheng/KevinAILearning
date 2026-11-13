@@ -1,5 +1,4 @@
 import hashlib
-import re
 import sqlite3
 import threading
 import time
@@ -14,6 +13,8 @@ from langchain_core.vectorstores import VectorStore
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import TextSplitter
 from pydantic import PrivateAttr
+
+from rate_limits import exception_chain_text, retry_after_seconds
 
 
 MIN_REQUEST_INTERVAL_SECONDS = 0.8
@@ -164,12 +165,7 @@ class RateLimitedGoogleGenerativeAIEmbeddings(GoogleGenerativeAIEmbeddings):
 
     @staticmethod
     def _exception_chain_text(error: BaseException) -> str:
-        messages = []
-        current: Optional[BaseException] = error
-        while current is not None:
-            messages.append(str(current))
-            current = current.__cause__
-        return " ".join(messages).lower()
+        return exception_chain_text(error)
 
     @staticmethod
     def _is_daily_quota_error(error_text: str) -> bool:
@@ -177,15 +173,7 @@ class RateLimitedGoogleGenerativeAIEmbeddings(GoogleGenerativeAIEmbeddings):
 
     @staticmethod
     def _retry_after_seconds(error_text: str) -> Optional[float]:
-        match = re.search(r"retry in ([0-9hms.]+)", error_text)
-        if match is None:
-            return None
-
-        multipliers = {"h": 3600, "m": 60, "s": 1}
-        parts = re.findall(r"([0-9]+(?:\.[0-9]+)?)([hms])", match.group(1))
-        if not parts:
-            return None
-        return sum(float(amount) * multipliers[unit] for amount, unit in parts)
+        return retry_after_seconds(error_text)
 
 
 def sha256_file(path: Path) -> str:
