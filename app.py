@@ -16,6 +16,7 @@ from pdf_indexing import (
     wait_until_retry_at,
 )
 from langchain_community.embeddings import HuggingFaceEmbeddings  # 引入本地向量模型
+from rate_limited_chat import RateLimitedChatModel
 from study_agents import StudyAssistant, StudyProgress
 
 # ---------------------------------------------------------------------------
@@ -45,7 +46,9 @@ print("正在初始化无人机大容量资料 RAG 学习系统...")
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 # Gemini 对话模型
-llm = ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2)
+llm = RateLimitedChatModel(
+    ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2)
+)
 
 # ---------------------------------------------------------------------------
 # 3. 增量同步 PDF 与持久化向量数据库
