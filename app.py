@@ -1,35 +1,17 @@
-from dotenv import load_dotenv
-import os
 import sys
-import time
 from pathlib import Path
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pdf_indexing import (
-    DailyEmbeddingQuotaExceeded,
-    DailyQuotaCooldownActive,
-    RateLimitedGoogleGenerativeAIEmbeddings,
     backup_legacy_chroma,
     clear_index_manifest,
     synchronize_pdf_index,
-    wait_until_retry_at,
 )
 from langchain_community.embeddings import HuggingFaceEmbeddings  # 引入本地向量模型
-from rate_limited_chat import RateLimitedChatModel
 from study_agents import StudyAssistant, StudyProgress
 
-# ---------------------------------------------------------------------------
-# 1. 加载项目本地的 .env 文件（实现 API Key 隔离，不污染全局环境）
-# ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
-
-if not os.environ.get("GOOGLE_API_KEY"):
-    print(
-        "错误: 未在当前项目目录下检测到 .env 文件或 GOOGLE_API_KEY，请检查配置！"
-    )
-    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # 2. 基础路径配置
@@ -40,14 +22,13 @@ INDEX_MANIFEST = BASE_DIR / "pdf_index_manifest.sqlite3"
 
 print("正在初始化无人机大容量资料 RAG 学习系统...")
 
-# 初始化 Gemini 向量模型与大模型
-#embeddings = RateLimitedGoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
-# 【核心改变】使用本地 CPU 运行的开源向量模型（无需 API Key，无任何额度限制，几分钟跑完 4000 页）
+# 本地 CPU 向量模型与低内存本地对话模型
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-# Gemini 对话模型
-llm = RateLimitedChatModel(
-    ChatGoogleGenerativeAI(model="gemini-3.8-flash", temperature=0.2)
+llm = ChatOllama(
+    model="qwen2.5:0.5b",
+    temperature=0.2,
+    num_ctx=2048,
+    keep_alive="30s",
 )
 
 # ---------------------------------------------------------------------------
@@ -72,26 +53,12 @@ vectorstore = Chroma(
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=1000, chunk_overlap=200
 )
-while True:
-    try:
-        synchronize_pdf_index(
-            PDF_DIR,
-            vectorstore,
-            INDEX_MANIFEST,
-            text_splitter,
-        )
-        break
-    except DailyEmbeddingQuotaExceeded as error:
-        print(f"\n{error}")
-        retry_at = error.retry_after_timestamp or (
-            time.time() + 24 * 60 * 60
-        )
-    except DailyQuotaCooldownActive as error:
-        print(f"\n{error}")
-        retry_at = error.retry_after_timestamp
-
-    if not wait_until_retry_at(retry_at):
-        sys.exit(0)
+synchronize_pdf_index(
+    PDF_DIR,
+    vectorstore,
+    INDEX_MANIFEST,
+    text_splitter,
+)
 
 if not any(
     path.is_file() and path.suffix.lower() == ".pdf"
